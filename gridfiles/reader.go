@@ -1,15 +1,27 @@
-package gridfiles;
+package gridfiles
 
 import (
 	"io/ioutil"
+	"path/filepath"
+	"strings"
+
 	"gopkg.in/yaml.v2"
 	log "github.com/sirupsen/logrus"
 )
 
 func ReadGrid(filename string) (*Grid, error) {
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".tmj":
+		return ReadGridTMJ(filename)
+	}
+
+	return readGridYAML(filename)
+}
+
+func readGridYAML(filename string) (*Grid, error) {
 	log.Infof("Loading grid: %v", filename)
 
-	file, err := ioutil.ReadFile(filename);
+	file, err := ioutil.ReadFile(filename)
 
 	if err != nil {
 		return nil, err
@@ -17,12 +29,10 @@ func ReadGrid(filename string) (*Grid, error) {
 
 	gf := GridSerializable{}
 
-	err = yaml.UnmarshalStrict(file, &gf);
-
+	err = yaml.UnmarshalStrict(file, &gf)
 	if err != nil {
 		return nil, err
 	}
-
 
 	g := &Grid{
 		RowCount: gf.RowCount,
@@ -36,7 +46,6 @@ func ReadGrid(filename string) (*Grid, error) {
 	for _, t := range gf.Tiles {
 		g.Tiles[t.Row][t.Col] = t
 	}
-
 
 	return g, err
 }

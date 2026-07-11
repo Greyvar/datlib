@@ -1,0 +1,38 @@
+---
+colcount: 2
+rowcount: 2
+lastEntityId: "1"
+tiles:
+- texture: "grass.png"
+  col: 0
+  row: 0
+  rot: 0
+  flipH: false
+  flipV: false
+  traversable: true
+- texture: "water.png"
+  col: 1
+  row: 0
+  rot: 0
+  flipH: false
+  flipV: true
+  traversable: false
+- texture: "sand.png"
+  col: 0
+  row: 1
+  rot: 90
+  flipH: false
+  flipV: false
+  traversable: true
+- texture: "grass.png"
+  col: 1
+  row: 1
+  rot: 0
+  flipH: true
+  flipV: false
+  traversable: true
+entities:
+- row: 1
+  col: 1
+  definition: "pot"
+  id: "1"

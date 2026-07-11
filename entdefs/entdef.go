@@ -1,13 +1,13 @@
 package entdefs;
 
 type EntityDefinition struct {
-	Title string
-	InitialState string `yaml:"initialState"`
-	States map[string]EntityState
-	Texture string
+	Title        string                  `json:"title" yaml:"title,omitempty"`
+	InitialState string                  `json:"initialState" yaml:"initialState"`
+	States       map[string]EntityState  `json:"states" yaml:"states"`
+	Texture      string                  `json:"texture" yaml:"texture,omitempty"`
 }
 
 type EntityState struct {
-	Name string
-	Frames []int32
+	Name   string  `json:"name" yaml:"name"`
+	Frames []int32 `json:"frames" yaml:"frames"`
 }

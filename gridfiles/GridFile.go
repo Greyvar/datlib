@@ -8,6 +8,20 @@ type Tile struct {
 	FlipV bool `yaml:"flipV"`
 	Traversable bool
 	Texture string
+	AtlasKey string `yaml:"-"`
+	FrameIndex int32 `yaml:"-"`
+	TeleportDst string `yaml:"teleportDst,omitempty"`
+	TeleportDir string `yaml:"teleportDir,omitempty"`
+	TeleportX int `yaml:"teleportX,omitempty"`
+	TeleportY int `yaml:"teleportY,omitempty"`
+}
+
+type GridTileset struct {
+	Key        string
+	ImagePath  string
+	TileWidth  int
+	TileHeight int
+	Columns    int
 }
 
 type GridFileEntityInstance struct {
@@ -35,6 +49,7 @@ type Grid struct {
 	Tiles map[uint32]map[uint32]*Tile
 	Entities []GridFileEntityInstance
 	LastEntityId string `yaml:"lastEntityId"`
+	Tilesets []GridTileset
 }
 
 func (g *Grid) Build() {

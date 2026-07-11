@@ -1,0 +1,34 @@
+---
+colcount: 2
+rowcount: 2
+lastEntityId: ""
+tiles:
+- texture: "grass.png"
+  col: 0
+  row: 0
+  rot: 0
+  flipH: false
+  flipV: false
+  traversable: true
+- texture: "grass.png"
+  col: 1
+  row: 0
+  rot: 0
+  flipH: false
+  flipV: false
+  traversable: true
+- texture: "grass.png"
+  col: 0
+  row: 1
+  rot: 0
+  flipH: false
+  flipV: false
+  traversable: true
+- texture: "grass.png"
+  col: 1
+  row: 1
+  rot: 0
+  flipH: false
+  flipV: false
+  traversable: true
+entities: []
