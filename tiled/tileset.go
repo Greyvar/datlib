@@ -7,7 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
+
+// DefaultTexture is used when a tileset cannot be loaded or a GID has no catalog entry.
+const DefaultTexture = "construct.png"
 
 type tilesetRef struct {
 	FirstGID uint32 `json:"firstgid"`
@@ -49,16 +54,42 @@ type tsxImage struct {
 }
 
 type tsxTile struct {
-	ID    int      `xml:"id,attr"`
-	Type  string   `xml:"type,attr"`
-	Image tsxImage `xml:"image"`
+	ID          int             `xml:"id,attr"`
+	Type        string          `xml:"type,attr"`
+	Image       tsxImage        `xml:"image"`
+	ObjectGroup tsxObjectGroup  `xml:"objectgroup"`
+	Properties  tsxProperties   `xml:"properties"`
+}
+
+type tsxProperty struct {
+	Name  string `xml:"name,attr"`
+	Type  string `xml:"type,attr"`
+	Value string `xml:"value,attr"`
+}
+
+type tsxProperties struct {
+	Properties []tsxProperty `xml:"property"`
+}
+
+type tsxObjectGroup struct {
+	Objects []tsxObject `xml:"object"`
+}
+
+type tsxObject struct {
+	X      float64 `xml:"x,attr"`
+	Y      float64 `xml:"y,attr"`
+	Width  float64 `xml:"width,attr"`
+	Height float64 `xml:"height,attr"`
 }
 
 type tileInfo struct {
-	Texture    string
-	Type       string
-	AtlasKey   string
-	FrameIndex int32
+	Texture          string
+	Type             string
+	AtlasKey         string
+	FrameIndex       int32
+	Collision        []CollisionRect
+	CollisionFromTSX bool
+	Hidden           bool
 }
 
 type TilesetCatalog struct {
@@ -77,7 +108,9 @@ func LoadTilesetsFromMap(mapPath string, refs []tilesetRef) (*TilesetCatalog, er
 	for _, ref := range refs {
 		if ref.Source != "" {
 			if err := catalog.loadExternalTileset(mapDir, ref); err != nil {
-				return nil, err
+				log.Warnf("Cannot load tileset %q (map %q): %v; falling back to %s",
+					ref.Source, mapPath, err, DefaultTexture)
+				catalog.registerFallbackTileset(ref)
 			}
 			continue
 		}
@@ -86,6 +119,103 @@ func LoadTilesetsFromMap(mapPath string, refs []tilesetRef) (*TilesetCatalog, er
 	}
 
 	return catalog, nil
+}
+
+// LoadTilesetFile loads a standalone external Tiled tileset (.tsx) by path.
+// It returns soft warnings (e.g. missing optional assets) separately from hard errors.
+func LoadTilesetFile(tsxPath string) (*TilesetCatalog, []string, error) {
+	tsxPath = filepath.Clean(tsxPath)
+	catalog := &TilesetCatalog{
+		base: make(map[uint32]tileInfo),
+	}
+	ref := tilesetRef{
+		FirstGID: 1,
+		Source:   filepath.Base(tsxPath),
+	}
+	if err := catalog.loadExternalTileset(filepath.Dir(tsxPath), ref); err != nil {
+		return nil, nil, err
+	}
+
+	warnings, err := validateTilesetAssets(tsxPath)
+	if err != nil {
+		return catalog, warnings, err
+	}
+	return catalog, warnings, nil
+}
+
+func validateTilesetAssets(tsxPath string) ([]string, error) {
+	data, err := os.ReadFile(tsxPath)
+	if err != nil {
+		return nil, fmt.Errorf("read tileset %q: %w", tsxPath, err)
+	}
+
+	var ts tsxTileset
+	if err := xml.Unmarshal(data, &ts); err != nil {
+		return nil, fmt.Errorf("parse tileset %q: %w", tsxPath, err)
+	}
+
+	var warnings []string
+	tilesetDir := filepath.Dir(tsxPath)
+
+	atlasImage := strings.TrimSpace(ts.Image.Source)
+	if atlasImage != "" {
+		imagePath := atlasImage
+		if !filepath.IsAbs(imagePath) {
+			imagePath = filepath.Join(tilesetDir, imagePath)
+		}
+		imagePath = filepath.Clean(imagePath)
+		if _, err := os.Stat(imagePath); err != nil {
+			return warnings, fmt.Errorf("tileset %q references missing image %q (resolved %q)",
+				tsxPath, atlasImage, imagePath)
+		}
+		if ts.Columns <= 0 {
+			warnings = append(warnings, fmt.Sprintf("tileset %q has image %q but columns=%d", tsxPath, atlasImage, ts.Columns))
+		}
+	}
+
+	if atlasImage == "" && len(ts.Tiles) == 0 {
+		warnings = append(warnings, fmt.Sprintf("tileset %q has no atlas image and no tile entries", tsxPath))
+	}
+
+	for _, tile := range ts.Tiles {
+		src := strings.TrimSpace(tile.Image.Source)
+		if src == "" {
+			continue
+		}
+		imagePath := src
+		if !filepath.IsAbs(imagePath) {
+			imagePath = filepath.Join(tilesetDir, imagePath)
+		}
+		imagePath = filepath.Clean(imagePath)
+		if _, err := os.Stat(imagePath); err != nil {
+			return warnings, fmt.Errorf("tileset %q tile %d references missing image %q (resolved %q)",
+				tsxPath, tile.ID, src, imagePath)
+		}
+	}
+
+	return warnings, nil
+}
+
+// registerFallbackTileset records GIDs for a missing external tileset so
+// lookups resolve to DefaultTexture instead of leaving the catalog empty.
+func (c *TilesetCatalog) registerFallbackTileset(ref tilesetRef) {
+	if ref.FirstGID == 0 {
+		return
+	}
+
+	// Enough slots that typical atlas maps still resolve when the TSX is missing.
+	const fallbackTileCount = 1024
+	for localID := 0; localID < fallbackTileCount; localID++ {
+		gid := ref.FirstGID + uint32(localID)
+		if _, ok := c.base[gid]; ok {
+			continue
+		}
+		c.base[gid] = tileInfo{
+			Texture:          DefaultTexture,
+			CollisionFromTSX: true,
+			Hidden:           false,
+		}
+	}
 }
 
 func (c *TilesetCatalog) loadExternalTileset(mapDir string, ref tilesetRef) error {
@@ -127,7 +257,12 @@ func (c *TilesetCatalog) loadExternalTileset(mapDir string, ref tilesetRef) erro
 
 	for _, tile := range ts.Tiles {
 		gid := ref.FirstGID + uint32(tile.ID)
-		info := tileInfo{Type: strings.TrimSpace(tile.Type)}
+		info := tileInfo{
+			Type:             strings.TrimSpace(tile.Type),
+			Collision:        collisionRectsFromTSXTile(tile),
+			CollisionFromTSX: true,
+			Hidden:           !drawFromProperties(tsxPropsToEntries(tile.Properties.Properties)),
+		}
 
 		if tile.Image.Source != "" {
 			info.Texture = textureFromImagePath(tile.Image.Source)
@@ -148,9 +283,11 @@ func (c *TilesetCatalog) loadExternalTileset(mapDir string, ref tilesetRef) erro
 				continue
 			}
 			c.base[gid] = tileInfo{
-				Texture:    fmt.Sprintf("%s#%d", atlasBase, localID),
-				AtlasKey:   atlasKey,
-				FrameIndex: int32(localID),
+				Texture:          fmt.Sprintf("%s#%d", atlasBase, localID),
+				AtlasKey:         atlasKey,
+				FrameIndex:       int32(localID),
+				CollisionFromTSX: true,
+				Hidden:           false,
 			}
 		}
 	}
@@ -185,7 +322,11 @@ func (c *TilesetCatalog) loadEmbeddedTileset(ref tilesetRef) {
 
 	for _, tile := range ref.Tiles {
 		gid := ref.FirstGID + uint32(tile.ID)
-		info := tileInfo{Type: strings.TrimSpace(tile.Type)}
+		info := tileInfo{
+			Type:             strings.TrimSpace(tile.Type),
+			CollisionFromTSX: true,
+			Hidden:           !drawFromProperties(tile.Properties),
+		}
 
 		if tile.Image != "" {
 			info.Texture = textureFromImagePath(tile.Image)
@@ -209,9 +350,11 @@ func (c *TilesetCatalog) loadEmbeddedTileset(ref tilesetRef) {
 				continue
 			}
 			c.base[gid] = tileInfo{
-				Texture:    fmt.Sprintf("%s#%d", atlasBase, localID),
-				AtlasKey:   atlasKey,
-				FrameIndex: int32(localID),
+				Texture:          fmt.Sprintf("%s#%d", atlasBase, localID),
+				AtlasKey:         atlasKey,
+				FrameIndex:       int32(localID),
+				CollisionFromTSX: true,
+				Hidden:           false,
 			}
 		}
 	}

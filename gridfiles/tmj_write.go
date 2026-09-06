@@ -76,7 +76,7 @@ func WriteGridTMJ(grid *Grid, filename string, opts TMJWriteOptions) error {
 	registerTexture := func(texture string) uint32 {
 		texture = strings.TrimSpace(texture)
 		if texture == "" {
-			texture = "construct.png"
+			texture = tiled.DefaultTexture
 		}
 		if id, ok := textureIDs[texture]; ok {
 			return id
@@ -116,6 +116,7 @@ func WriteGridTMJ(grid *Grid, filename string, opts TMJWriteOptions) error {
 
 	objects := make([]tmjMapObject, 0, len(grid.Entities))
 	nextObjectID := 1
+	visible := true
 	for _, ent := range grid.Entities {
 		objects = append(objects, tmjMapObject{
 			ID:       nextObjectID,
@@ -125,7 +126,7 @@ func WriteGridTMJ(grid *Grid, filename string, opts TMJWriteOptions) error {
 			Width:    float64(tileSize),
 			Height:   float64(tileSize),
 			Rotation: 0,
-			Visible:  true,
+			Visible:  &visible,
 		})
 		nextObjectID++
 	}
